@@ -49,8 +49,8 @@ unsigned stroke_power;
 int delta_usec;
 int last_delta_usec;
 unsigned spm;
-unsigned spm_count; // cumulative
-unsigned spm_time; // start of the last stroke
+unsigned tick_count; // cumulative
+unsigned tick_time; // start of the last stroke
 unsigned ticks;
 unsigned last_ticks;
 float total_distance; // meters
@@ -152,22 +152,19 @@ void rower_loop()
 		stroke_power = 0;
 	}
 
-	// we have received a new data point,
-	// process it and output the update on the serial port
-
 	// on positive velocity pulls, check for a sign change
 	// for tracking power and distance
 	if (delta_usec > 0)
 	{
-		// need a scaling factor to compute how much
-		// force they are applying.
-		oar_vel = 1.0e5 / delta_usec;
-		oar_force = oar_vel * oar_vel;
-
 		// if the delta_usec is too fast, this is probably an error
 		// and we should discard this point.100000000
 		if (delta_usec < 2500)
 			return;
+
+		// need a scaling factor to compute how much
+		// force they are applying.
+		oar_vel = 1.0e5 / delta_usec;
+		oar_force = oar_vel * oar_vel;
 
 		if (last_delta_usec <= 0)
 		{
@@ -175,8 +172,6 @@ void rower_loop()
 			// compute spm * 10
 			const unsigned stroke_delta = now - start_usec;
 			spm = 600000000L / stroke_delta;
-			spm_count++;
-			spm_time = now;
 			
 			start_usec = now;
 			stroke_power = 0;
@@ -187,10 +182,16 @@ void rower_loop()
 			Serial.println();
 		}
 
+
 		stroke_power += oar_force;
 		ticks++;
 	} else {
-		// return stroke. anything to do?
+		// return stroke increment stroke counter on first call
+		if (oar_vel > 0)
+		{
+			tick_time = now;
+			tick_count++;
+		}
 		oar_vel = 0;
 		oar_force = 0;
 	}
@@ -226,17 +227,20 @@ void setup(void)
 // GATT specification (GSS) has the fitness device details
 void send_update(void)
 {
-	String msg = String(spm_smooth/10,1) + "," + String(vel_smooth,1) + "," + String((float)stroke_power,0);
-	Serial.println(msg);
 	//indoorBike_publish(spm_smooth/10, vel_smooth, stroke_power);
 
 	// convert our distance estimate into wheel rotations
-	float wheel_circumference = 0.7 * 2 * M_PI;
-	unsigned wheel_count = total_distance / wheel_circumference;
-	cadence_publish(spm_count, spm_time, wheel_count, micros());
+	// 700x25c, according to the garmin table
+	float wheel_circumference = 2.105; // 0.7 * 2 * M_PI;
+	unsigned wheel_count = total_distance / wheel_circumference / 3; // because too fast
+
+	String msg = String(spm_smooth,1) + "," + String(tick_count,1) + "," + String(vel_smooth,1) + "," + String((float)stroke_power,0) + "," + String(total_distance,1);
+	Serial.println(msg);
+	//cadence_publish(last_crank_count, last_crank_time, wheel_count, micros());
+	cadence_publish(tick_count*3, tick_time, wheel_count, micros());
 }
 
-void real_loop(void)
+void loop(void)
 {
 	rower_loop();
 
@@ -256,22 +260,22 @@ void real_loop(void)
 		
 }
 
-void loop(void)
+void fake_loop(void)
 {
 	const unsigned now = micros();
 	static unsigned last_update = 0;
 	unsigned update_usec = 500000; // 2 Hz
 
-	static unsigned spm_count = 0;
+	static unsigned tick_count = 0;
 	static unsigned wheel_count = 0;
 
 	if (now - last_update > update_usec)
 	{
 		last_update = now;
-		spm_count++;
-		spm_time = now;
+		tick_count++;
+		tick_time = now;
 		wheel_count += 10;
-		cadence_publish(spm_count, now, wheel_count, now);
-		Serial.println(spm_count);
+		cadence_publish(tick_count, now, wheel_count, now);
+		Serial.println(tick_count);
 	}
 }
