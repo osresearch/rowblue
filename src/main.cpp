@@ -13,6 +13,8 @@
 extern void indoorBike_setup();
 extern void indoorBike_publish(float speed, float cadence, float power);
 extern void cadence_publish(unsigned stroke_count, unsigned last_stroke_usec, unsigned wheel_count, unsigned last_wheel_usec);
+extern void display_setup();
+extern void display_loop(float spm, float vel);
 
 
 /*
@@ -62,9 +64,9 @@ static unsigned long last_step;
 static float oar_vel;
 static float oar_force;
 static float vel;
-static float vel_smooth;
+float vel_smooth;
 static float vel_smoothing = 512;
-static float spm_smooth;
+float spm_smooth;
 static float spm_smoothing = 128;
 
 void rower_loop()
@@ -220,6 +222,7 @@ void rower_loop()
 void setup(void)
 {
 	Serial.begin(115200);
+	display_setup();
 	indoorBike_setup();
 	rower_setup();
 }
@@ -246,7 +249,9 @@ void loop(void)
 
 	const unsigned now = micros();
 	static unsigned last_update = 0;
+	static unsigned last_redraw = 0;
 	unsigned update_usec = 250000; // 4 Hz
+	unsigned redraw_usec = 1000000; // 1 Hz
 
 	// only send every few seconds if nothing is happening
 	if (vel_smooth < 0.5)
@@ -256,6 +261,12 @@ void loop(void)
 	{
 		last_update = now;
 		send_update();
+	}
+
+	if (now - last_redraw > redraw_usec)
+	{
+		last_redraw = now;
+		display_loop(spm_smooth/10, vel_smooth);
 	}
 		
 }
